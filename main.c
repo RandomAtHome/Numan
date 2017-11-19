@@ -1,5 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+
+double DETERMINANT = 1;
 
 double **get_matrix(size_t side) {
     double **matrix = calloc(side, sizeof(double *));
@@ -52,8 +55,7 @@ size_t find_fitting_row(double **matrix, size_t side, size_t column) {
         if (fabs(matrix[j][column]) > max_val) {
             res = j;
         }
-#endif
-#ifndef _MAIN_ELEM
+#else
         if (matrix[j][column]) {
             return j;
         }
@@ -62,7 +64,20 @@ size_t find_fitting_row(double **matrix, size_t side, size_t column) {
     return res;
 }
 
-int substract_line_from_line(double **matrix, size_t side, size_t from, size_t which) {
+int swap_lines(double **matrix, size_t side, size_t line1, size_t line2) {
+    if (line1 == line2) {
+        return 1;
+    }
+    double *temp_buf = malloc((side + 1) * sizeof(double));
+    memcpy(temp_buf, matrix[line1], (side + 1) * sizeof(double));
+    memcpy(matrix[line1], matrix[line2], (side + 1) * sizeof(double));
+    memcpy(matrix[line2], temp_buf, (side + 1) * sizeof(double));
+    free(temp_buf);
+    DETERMINANT *= -1;
+    return 0;
+}
+
+int normalize_line(double **matrix, size_t side, size_t which) {
     size_t j, first_elem = (size_t)-1;
     for (j = 0; j < side; j++) {
         if (matrix[which][j]) {
@@ -73,31 +88,49 @@ int substract_line_from_line(double **matrix, size_t side, size_t from, size_t w
     if (first_elem == (size_t)-1) {
         return -1;
     }
-    double modifier = matrix[from][first_elem] / matrix[which][first_elem];
-    for (j = first_elem+1; j < side+1; j++) {
-        if (from != which) {
-            matrix[from][j] -= modifier * matrix[which][j];
-        }
+    for (j = first_elem + 1; j < side+1; j++) {
         matrix[which][j] /= matrix[which][first_elem];
     }
-    if (from != which) {
-        matrix[from][first_elem] = 0;
-    }
+    DETERMINANT *= matrix[which][first_elem];
     matrix[which][first_elem] = 1;
     return 0;
 }
 
-int straigt_move(double **matrix, size_t side) {
+int subtract_line_from_line(double **matrix, size_t side, size_t from, size_t which) {
+    size_t j, first_elem = (size_t)-1;
+    for (j = 0; j < side; j++) {
+        if (matrix[which][j]) {
+            first_elem = j;
+            break;
+        }
+    }
+    if (first_elem == (size_t)-1) {
+        return -1;
+    }
+    if (which != from) {
+        double modifier = matrix[from][first_elem] / matrix[which][first_elem];
+        for (j = first_elem + 1; j < side + 1; j++) {
+            matrix[from][j] -= modifier * matrix[which][j];
+        }
+        matrix[from][first_elem] = 0;
+    }
+    normalize_line(matrix, side, which);
+    return 0;
+}
+
+int straight_move(double **matrix, size_t side) {
     size_t column, row, s_row;
     for (column = 0; column < side; column++) {
         if ((s_row = find_fitting_row(matrix, side, column)) == (size_t)-1) {
             return 1;
         }
         for (row = column; row < side; row++) {
-            if ((substract_line_from_line(matrix, side, row, s_row) == -1)) {
-
+            if ((subtract_line_from_line(matrix, side, row, s_row) == -1)) {
                 return 1;
             }
+        }
+        if (column != s_row) {
+            swap_lines(matrix, side, s_row, column);
         }
     }
     return 0;
@@ -118,13 +151,18 @@ int backwards_move(double **matrix, size_t side) {
 }
 
 int main() {
+#ifdef _MAIN_ELEM
+    printf("Compiled with _MAIN_ELEM\n");
+#else
+    printf("Compiled without _MAIN_ELEM\n");
+#endif
     size_t side;
     printf("Enter n - side of matrix:\n");
     scanf("%zu", &side);
     double **matrix = get_matrix(side);
     fill_matrix(matrix, side);
     __print_matrix(matrix, side);
-    if (straigt_move(matrix, side) == 1) {
+    if (straight_move(matrix, side) == 1) {
         printf("No non-zero element in column, exiting...\n");
         return 1;
     }
@@ -134,5 +172,6 @@ int main() {
         return 1;
     }
     __print_matrix(matrix, side);
+    printf("%lf\n", DETERMINANT);
     return 0;
 }
