@@ -6,6 +6,35 @@
 
 double DETERMINANT = 1;
 
+enum OPERATIONS
+{
+    NONE = 0,
+    SWAP = 1,
+    SUBTRACT = 2,
+    SUBTRACT_B = 3
+};
+
+typedef struct operation
+{
+    int type;
+    size_t which;
+    size_t from;
+} Operation;
+
+void add_operation(Operation **ops, size_t *op_len, size_t *op_i, int type, size_t from, size_t which) {
+    if (ops) {
+        if (*op_i == *op_len) {
+            *op_len *= 2;
+            *ops = realloc(*ops, *op_len * sizeof(Operation));
+        }
+        (*ops)[*op_i].type = type;
+        (*ops)[*op_i].which = which;
+        (*ops)[*op_i].from = from;
+        (*op_i)++;
+    }
+    return;
+}
+
 void input_fill_matrix(double **matrix, size_t side) {
     size_t i, j;
     printf("Enter matrix:\n");
@@ -46,16 +75,17 @@ double **get_matrix(size_t *side) {
     printf("Use formulated matrix? (Y/n)\n");
     char *temp = NULL;
     char flag = 0;
-    size_t len = 0;
+    size_t len = 1;
     while (1) {
         getline(&temp, &len, stdin);
-        if (len == 0 || temp[0] == 'y') {
+        if (temp[0] == '\n' || temp[0] == 'y') {
             flag = 1;
             break;
         } else if (temp[0] == 'n') {
             break;
         }
     }
+    free(temp);
     if (!flag) {
         printf("Enter n - side of matrix:\n");
         scanf("%zu", side);
@@ -76,7 +106,6 @@ double **get_matrix(size_t *side) {
     return matrix;
 }
 
-
 void __print_matrix(double **matrix, size_t side) {
     size_t i, j;
     for (i = 0; i < side; i++) {
@@ -88,6 +117,25 @@ void __print_matrix(double **matrix, size_t side) {
     }
     printf("#%-10s#\n", "");
     return;
+}
+
+int normalize_line(double **matrix, size_t side, size_t which) {
+    size_t j, first_elem = (size_t)-1;
+    for (j = 0; j < side; j++) {
+        if (matrix[which][j]) {
+            first_elem = j;
+            break;
+        }
+    }
+    if (first_elem == (size_t)-1) {
+        return -1;
+    }
+    for (j = first_elem + 1; j < side+1; j++) {
+        matrix[which][j] /= matrix[which][first_elem];
+    }
+    DETERMINANT *= matrix[which][first_elem];
+    matrix[which][first_elem] = 1;
+    return 0;
 }
 
 size_t find_fitting_row(double **matrix, size_t side, size_t column) {
@@ -122,25 +170,6 @@ int swap_lines(double **matrix, size_t side, size_t line1, size_t line2) {
     return 0;
 }
 
-int normalize_line(double **matrix, size_t side, size_t which) {
-    size_t j, first_elem = (size_t)-1;
-    for (j = 0; j < side; j++) {
-        if (matrix[which][j]) {
-            first_elem = j;
-            break;
-        }
-    }
-    if (first_elem == (size_t)-1) {
-        return -1;
-    }
-    for (j = first_elem + 1; j < side+1; j++) {
-        matrix[which][j] /= matrix[which][first_elem];
-    }
-    DETERMINANT *= matrix[which][first_elem];
-    matrix[which][first_elem] = 1;
-    return 0;
-}
-
 int subtract_line_from_line(double **matrix, size_t side, size_t from, size_t which) {
     size_t j, first_elem = (size_t)-1;
     for (j = 0; j < side; j++) {
@@ -162,7 +191,16 @@ int subtract_line_from_line(double **matrix, size_t side, size_t from, size_t wh
     return 0;
 }
 
-int straight_move(double **matrix, size_t side) {
+int subtract_line_from_line_b(double **matrix, size_t side, size_t from, size_t which) {
+    if (!matrix[which][which]) {
+        return 1;
+    }
+    matrix[from][side] -= matrix[which][side]*matrix[from][which];
+    matrix[from][which] = 0;
+    return 0;
+}
+
+int straight_move(double **matrix, size_t side, Operation **ops, size_t *op_len, size_t *op_i) {
     size_t column, row, s_row;
     for (column = 0; column < side; column++) {
         if ((s_row = find_fitting_row(matrix, side, column)) == (size_t)-1) {
@@ -172,24 +210,30 @@ int straight_move(double **matrix, size_t side) {
             if ((subtract_line_from_line(matrix, side, row, s_row) == -1)) {
                 return 1;
             }
+            if (ops) {
+                add_operation(ops, op_len, op_i, SUBTRACT, row, s_row);
+            }
         }
-        if (column != s_row) {
-            swap_lines(matrix, side, s_row, column);
+        swap_lines(matrix, side, s_row, column);
+        if (ops) {
+            add_operation(ops, op_len, op_i, SWAP, s_row, column);
         }
         normalize_line(matrix, side, column);
     }
+    printf("Straight exit\n");
     return 0;
 }
 
-int backwards_move(double **matrix, size_t side) {
+int backwards_move(double **matrix, size_t side, Operation **ops, size_t *op_len, size_t *op_i) {
     size_t s_row, row;
     for (s_row = side-1; s_row; s_row--) {
-        if (!matrix[s_row][s_row]) {
-            return 1;
-        }
         for (row = s_row-1; row != (size_t)-1; row--) {
-            matrix[row][side] -= matrix[s_row][side]*matrix[row][s_row];
-            matrix[row][s_row] = 0;
+            if (subtract_line_from_line_b(matrix, side, row, s_row)) {
+                return 1;
+            }
+            if (ops) {
+                add_operation(ops, op_len, op_i, SUBTRACT_B, row, s_row);
+            }
         }
     }
     return 0;
@@ -204,16 +248,24 @@ int main() {
     size_t side;
     double **matrix = get_matrix(&side);
     __print_matrix(matrix, side);
-    if (straight_move(matrix, side) == 1) {
+    size_t op_len = side;
+    Operation *ops = calloc(op_len, sizeof(Operation));
+    size_t op_i = 0;
+    if (straight_move(matrix, side, &ops, &op_len, &op_i) == 1) {
         printf("No non-zero element in column, exiting...\n");
+        __print_matrix(matrix, side);
         return 1;
     }
     __print_matrix(matrix, side);
-    if (backwards_move(matrix, side) == 1) {
+    if (backwards_move(matrix, side, &ops, &op_len, &op_i) == 1) {
         printf("Zero element on diagonal in backward move, exiting...\n");
+        __print_matrix(matrix, side);
         return 1;
     }
     __print_matrix(matrix, side);
     printf("Determinant: %lg\n", DETERMINANT);
+    free(ops);
+    free(matrix[0]);
+    free(matrix);
     return 0;
 }
