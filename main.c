@@ -1,20 +1,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
+//#define _MAIN_ELEM
 
 double DETERMINANT = 1;
 
-double **get_matrix(size_t side) {
-    double **matrix = calloc(side, sizeof(double *));
-    matrix[0] = calloc(side * (side + 1), sizeof(double));
-    size_t i;
-    for (i = 1; i < side; i++) {
-        matrix[i] = matrix[0] + i * (side+1);
-    }
-    return matrix;
-}
-
-void fill_matrix(double **matrix, size_t side) {
+void input_fill_matrix(double **matrix, size_t side) {
     size_t i, j;
     printf("Enter matrix:\n");
     for (i = 0; i < side; i++) {
@@ -29,20 +21,73 @@ void fill_matrix(double **matrix, size_t side) {
     return;
 }
 
+void formula_filled_matrix(double **matrix, size_t side) {
+    printf("Enter x for formula\n");
+    double x;
+    scanf("%lf", &x);
+    double q = 0.989;
+    size_t i, j;
+    for (i = 0; i < side; i++) {
+        for (j = 0; j < side; j++) {
+            if (j != i) {
+                matrix[i][j] = pow(q, i + j + 2) + 0.1 * ((int)(j - i));
+            } else {
+                matrix[i][j] = pow(q - 1, i + j + 2);
+            }
+        }
+    }
+    for (i = 0; i < side; i++) {
+        matrix[i][side] = x * exp(x/(i+1)) * cos(x/(i+1));
+    }
+    return;
+}
+
+double **get_matrix(size_t *side) {
+    printf("Use formulated matrix? (Y/n)\n");
+    char *temp = NULL;
+    char flag = 0;
+    size_t len = 0;
+    while (1) {
+        getline(&temp, &len, stdin);
+        if (len == 0 || temp[0] == 'y') {
+            flag = 1;
+            break;
+        } else if (temp[0] == 'n') {
+            break;
+        }
+    }
+    if (!flag) {
+        printf("Enter n - side of matrix:\n");
+        scanf("%zu", side);
+    } else {
+        *side = 100;
+    }
+    double **matrix = calloc(*side, sizeof(double *));
+    matrix[0] = calloc(*side * (*side + 1), sizeof(double));
+    size_t i;
+    for (i = 1; i < *side; i++) {
+        matrix[i] = matrix[0] + i * (*side+1);
+    }
+    if (!flag) {
+        input_fill_matrix(matrix, *side);
+    } else {
+        formula_filled_matrix(matrix, *side);
+    }
+    return matrix;
+}
+
+
 void __print_matrix(double **matrix, size_t side) {
     size_t i, j;
     for (i = 0; i < side; i++) {
+        printf("|");
         for (j = 0; j < side+1; ++j) {
-            printf("%lf\t", matrix[i][j]);
+            printf("%12lg|", matrix[i][j]);
         }
         printf("\n");
     }
     printf("#%-10s#\n", "");
     return;
-}
-
-double fabs(double number) {
-    return number * (number > 0 ? 1 : -1);
 }
 
 size_t find_fitting_row(double **matrix, size_t side, size_t column) {
@@ -114,7 +159,6 @@ int subtract_line_from_line(double **matrix, size_t side, size_t from, size_t wh
         }
         matrix[from][first_elem] = 0;
     }
-    normalize_line(matrix, side, which);
     return 0;
 }
 
@@ -132,6 +176,7 @@ int straight_move(double **matrix, size_t side) {
         if (column != s_row) {
             swap_lines(matrix, side, s_row, column);
         }
+        normalize_line(matrix, side, column);
     }
     return 0;
 }
@@ -157,10 +202,7 @@ int main() {
     printf("Compiled without _MAIN_ELEM\n");
 #endif
     size_t side;
-    printf("Enter n - side of matrix:\n");
-    scanf("%zu", &side);
-    double **matrix = get_matrix(side);
-    fill_matrix(matrix, side);
+    double **matrix = get_matrix(&side);
     __print_matrix(matrix, side);
     if (straight_move(matrix, side) == 1) {
         printf("No non-zero element in column, exiting...\n");
@@ -172,6 +214,6 @@ int main() {
         return 1;
     }
     __print_matrix(matrix, side);
-    printf("%lf\n", DETERMINANT);
+    printf("Determinant: %lg\n", DETERMINANT);
     return 0;
 }
