@@ -2,9 +2,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <ctype.h>
 //#define _MAIN_ELEM
 
 double DETERMINANT = 1;
+const double EPS = 0.0001;
+
 /* operation structure block*/
 enum OPERATIONS {
     NONE = 0,
@@ -37,6 +40,27 @@ void add_operation(Operation **ops, size_t *op_len, size_t *op_i, int type, size
     return;
 }
 
+/*general*/
+int await_response(const char line[]) {
+    char *temp = NULL;
+    char flag = 0;
+    size_t len = 1;
+    printf("%s (y/n)\n", line);
+    while (1) {
+        getline(&temp, &len, stdin);
+        if (tolower(temp[0]) == 'y') {
+            flag = 1;
+            break;
+        } else if (temp[0] == 'n') {
+            break;
+        } else {
+            printf("Enter y or n\n");
+        }
+    }
+    free(temp);
+    return flag;
+}
+
 /*input and matrix creation block*/
 void input_fill_matrix(double **matrix, size_t side) {
     size_t i, j;
@@ -57,6 +81,7 @@ void formula_filled_matrix(double **matrix, size_t side) {
     printf("Enter x for formula\n");
     double x;
     scanf("%lf", &x);
+    printf("x is set to %lg\n", x);
     double q = 0.989;
     size_t i, j;
     for (i = 0; i < side; i++) {
@@ -74,33 +99,25 @@ void formula_filled_matrix(double **matrix, size_t side) {
     return;
 }
 
-double **get_matrix(size_t *side) {
-    printf("Use formulated matrix? (Y/n)\n");
-    char *temp = NULL;
-    char flag = 0;
-    size_t len = 1;
-    while (1) {
-        getline(&temp, &len, stdin);
-        if (temp[0] == '\n' || temp[0] == 'y') {
-            flag = 1;
-            break;
-        } else if (temp[0] == 'n') {
-            break;
-        }
+double **create_matrix(size_t side) {
+    double **matrix = calloc(side, sizeof(double *));
+    matrix[0] = calloc(side * (side + 1), sizeof(double));
+    size_t i;
+    for (i = 1; i < side; i++) {
+        matrix[i] = matrix[0] + i * (side + 1);
     }
-    free(temp);
+    return matrix;
+}
+
+double **get_matrix(size_t *side) {
+    int flag = await_response("Use formulated matrix?");
     if (!flag) {
         printf("Enter n - side of matrix:\n");
         scanf("%zu", side);
     } else {
         *side = 100;
     }
-    double **matrix = calloc(*side, sizeof(double *));
-    matrix[0] = calloc(*side * (*side + 1), sizeof(double));
-    size_t i;
-    for (i = 1; i < *side; i++) {
-        matrix[i] = matrix[0] + i * (*side + 1);
-    }
+    double **matrix = create_matrix(*side);
     if (!flag) {
         input_fill_matrix(matrix, *side);
     } else {
@@ -140,7 +157,7 @@ void __print_matrix(double **matrix, size_t side) {
     return;
 }
 
-void __print_answers(double **matrix, size_t side) {
+void __print_usual_m_answers(double **matrix, size_t side) {
     size_t i;
     char var_name[13] = {0};
     for (i = 0; i < side; i++) {
@@ -150,6 +167,15 @@ void __print_answers(double **matrix, size_t side) {
     return;
 }
 
+void __print_seidel_answers(double *answers, size_t side) {
+    size_t i;
+    char var_name[13] = {0};
+    for (i = 0; i < side; i++) {
+        snprintf(var_name, 13, "%s%zu", "x", i + 1);
+        printf("|%6s|%12lg|\n", var_name, answers[i]);
+    }
+    return;
+}
 /*line normalization op block*/
 int normalize_line(double **matrix, size_t side, size_t which, double *mod) {
     size_t j, first_elem = (size_t) -1;
@@ -328,6 +354,102 @@ int apply_operations(double **matrix, size_t side, Operation *ops, size_t op_len
     return 0;
 }
 
+/*Seidel method*/
+double **get_coeffs_for_seidel(double **matrix, size_t side, double w) {
+    double **r_matrix = create_matrix(side);
+    size_t i, j;
+    for (i = 0; i < side; i++) {
+        if (!matrix[i][i]) {
+            return NULL;
+        }
+        for (j = 0; j < side + 1; j++) {
+            if (i != j) {
+                r_matrix[i][j] = -w * matrix[i][j] / matrix[i][i];
+                if (j == side) {
+                    r_matrix[i][j] *= -1;
+                }
+            } else {
+                r_matrix[i][j] = 1 - w;
+            }
+        }
+    }
+    return r_matrix;
+}
+
+int check_residual(double *answers, double **coeffs, size_t side) {
+    size_t i, j;
+    double residual;
+    for (i = 0; i < side; i++) {
+        residual = -answers[i];
+        for (j = 0; j < side + 1; j++) {
+            if (i != j) {
+                if (j == side) {
+                    residual += coeffs[i][j];
+                } else {
+                    residual += coeffs[i][j] * answers[j];
+                }
+            }
+        }
+        if (fabs(residual) > EPS) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int update_answers(double *answers, double **coeffs, size_t side) {
+    size_t i, j;
+    for (i = 0; i < side; i++) {
+        answers[i] *= coeffs[i][i];
+        for (j = 0; j < side + 1; j++) {
+            if (i == j) {
+                continue;
+            }
+            if (j == side) {
+                answers[i] += coeffs[i][j];
+            } else {
+                answers[i] += coeffs[i][j] * answers[j];
+            }
+        }
+    }
+    return 0;
+}
+
+int seidel_method(double **matrix, size_t side, double **answers) {
+    printf("Enter w (should be between 0 and 2):\n");
+    double w;
+    scanf("%lf", &w);
+    while (!((0 < w) && (w < 2))) {
+        printf("w should be between 0 and 2!\n");
+        scanf("%lf", &w);
+    }
+    printf("w is set to %lg\n", w);
+    *answers = calloc(side, sizeof(double));
+    double **coeffs = get_coeffs_for_seidel(matrix, side, w);
+    if (!coeffs) {
+        return -1;
+    }
+    size_t laps = 0;
+    while (check_residual(*answers, coeffs, side)) {
+        laps++;
+        update_answers(*answers, coeffs, side);
+    }
+    printf("Laps: %zu\n", laps);
+    free(coeffs[0]);
+    free(coeffs);
+    return 0;
+}
+
+int are_good_answers(double *answers, size_t side) {
+    size_t i;
+    for (i = 0; i < side; i++) {
+        if (!isfinite(answers[i]) || isnan(answers[i])) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 /*main*/
 int main() {
 #ifdef _MAIN_ELEM
@@ -339,6 +461,25 @@ int main() {
     double **matrix = get_matrix(&side);
     printf("Initial matrix:\n");
     __print_matrix(matrix, side);
+    double *answers_seidel = NULL;
+    if (await_response("Run Seidel method?")) {
+        if (seidel_method(matrix, side, &answers_seidel) == -1) {
+            printf("Seidel method failed: Zero element on diagonal!\n");
+        } else {
+            if (answers_seidel) {
+                printf("Seidel answers:\n");
+                __print_seidel_answers(answers_seidel, side);
+                if (!are_good_answers(answers_seidel, side)) {
+                    printf("Apparently Seidel didn't converge\n");
+                }
+            } else {
+                printf("Something unpredictable is wrong with Seidel\n");
+            }
+        }
+    }
+    if (answers_seidel) {
+        free(answers_seidel);
+    }
     size_t op_len = side;
     Operation *ops = calloc(op_len, sizeof(Operation));
     size_t op_i = 0;
@@ -355,7 +496,7 @@ int main() {
     printf("Result matrix:\n");
     __print_matrix(matrix, side);
     printf("Answers:\n");
-    __print_answers(matrix, side);
+    __print_usual_m_answers(matrix, side);
     printf("Determinant: %lg\n", DETERMINANT);
     free(matrix[0]);
     free(matrix);
