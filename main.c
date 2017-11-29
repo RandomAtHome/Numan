@@ -3,10 +3,14 @@
 #include <string.h>
 #include <math.h>
 #include <ctype.h>
-//#define _MAIN_ELEM
 
+#ifndef _EPSILON
+#define _EPSILON 0.0000001
+#endif
+
+int GAUSS_TYPE = 1;
 double DETERMINANT = 1;
-const double EPS = 0.0001;
+const double EPS = _EPSILON;
 
 /* operation structure block*/
 enum OPERATIONS {
@@ -15,6 +19,11 @@ enum OPERATIONS {
     SUBTRACT = 2,
     SUBTRACT_B = 3,
     NORMALIZE = 4
+};
+
+enum GAUSS_STATES {
+    SIMPLE = 1,
+    MAIN_ELEM = 2
 };
 
 typedef struct operation {
@@ -82,7 +91,7 @@ void formula_filled_matrix(double **matrix, size_t side) {
     double x;
     scanf("%lf", &x);
     printf("x is set to %lg\n", x);
-    double q = 0.989;
+    double q = 0.997;
     size_t i, j;
     for (i = 0; i < side; i++) {
         for (j = 0; j < side; j++) {
@@ -94,7 +103,7 @@ void formula_filled_matrix(double **matrix, size_t side) {
         }
     }
     for (i = 0; i < side; i++) {
-        matrix[i][side] = x * exp(x / (i + 1)) * cos(x / (i + 1));
+        matrix[i][side] = fabs(x - 4) * (i + 1) * sin(x); //exp(x / (i + 1)) * cos(x / (i + 1));
     }
     return;
 }
@@ -115,7 +124,7 @@ double **get_matrix(size_t *side) {
         printf("Enter n - side of matrix:\n");
         scanf("%zu", side);
     } else {
-        *side = 100;
+        *side = 40;
     }
     double **matrix = create_matrix(*side);
     if (!flag) {
@@ -172,7 +181,7 @@ void __print_seidel_answers(double *answers, size_t side) {
     char var_name[13] = {0};
     for (i = 0; i < side; i++) {
         snprintf(var_name, 13, "%s%zu", "x", i + 1);
-        printf("|%6s|%12lg|\n", var_name, answers[i]);
+        printf("|%6s|%25.20lg|\n", var_name, answers[i]);
     }
     return;
 }
@@ -222,19 +231,14 @@ int swap_lines(double **matrix, size_t side, size_t line1, size_t line2) {
 /*subtract ops block*/
 size_t find_fitting_row(double **matrix, size_t side, size_t column) {
     size_t j, res = (matrix[column][column] == 0 ? (size_t) -1 : column);
-#ifdef _MAIN_ELEM
     double max_val = fabs(matrix[column][column]);
-#endif
     for (j = column; j < side; j++) {
-#ifdef _MAIN_ELEM
-        if (fabs(matrix[j][column]) > max_val) {
+        if ((GAUSS_TYPE == MAIN_ELEM) && fabs(matrix[j][column]) > max_val) {
             res = j;
         }
-#else
-        if (matrix[j][column]) {
+        if ((GAUSS_TYPE == SIMPLE) && matrix[j][column]) {
             return j;
         }
-#endif
     }
     return res;
 }
@@ -376,25 +380,14 @@ double **get_coeffs_for_seidel(double **matrix, size_t side, double w) {
     return r_matrix;
 }
 
-int check_residual(double *answers, double **coeffs, size_t side) {
-    size_t i, j;
-    double residual;
+int are_good_answers(double *answers, size_t side) {
+    size_t i;
     for (i = 0; i < side; i++) {
-        residual = -answers[i];
-        for (j = 0; j < side + 1; j++) {
-            if (i != j) {
-                if (j == side) {
-                    residual += coeffs[i][j];
-                } else {
-                    residual += coeffs[i][j] * answers[j];
-                }
-            }
-        }
-        if (fabs(residual) > EPS) {
-            return 1;
+        if (!isfinite(answers[i])) {
+            return 0;
         }
     }
-    return 0;
+    return 1;
 }
 
 int update_answers(double *answers, double **coeffs, size_t side) {
@@ -415,6 +408,15 @@ int update_answers(double *answers, double **coeffs, size_t side) {
     return 0;
 }
 
+int is_diff_small(double *old, double *new, size_t side) {
+    double sum = 0;
+    size_t i;
+    for (i = 0; i < side; i++) {
+        sum += pow(new[i] - old[i], 2);
+    }
+    return (sqrt(sum) < (EPS / 2));
+}
+
 int seidel_method(double **matrix, size_t side, double **answers) {
     printf("Enter w (should be between 0 and 2):\n");
     double w;
@@ -429,40 +431,28 @@ int seidel_method(double **matrix, size_t side, double **answers) {
     if (!coeffs) {
         return -1;
     }
+    double *answers_copy = calloc(side, sizeof(double));
     size_t laps = 0;
-    while (check_residual(*answers, coeffs, side)) {
+    do {
         laps++;
+        memcpy(answers_copy, *answers, (int) side * sizeof(double));
         update_answers(*answers, coeffs, side);
-    }
+    } while (are_good_answers(*answers, side) && !is_diff_small(*answers, answers_copy, side));
     printf("Laps: %zu\n", laps);
     free(coeffs[0]);
     free(coeffs);
     return 0;
 }
 
-int are_good_answers(double *answers, size_t side) {
-    size_t i;
-    for (i = 0; i < side; i++) {
-        if (!isfinite(answers[i]) || isnan(answers[i])) {
-            return 0;
-        }
-    }
-    return 1;
-}
-
 /*main*/
 int main() {
-#ifdef _MAIN_ELEM
-    printf("Compiled with _MAIN_ELEM\n");
-#else
-    printf("Compiled without _MAIN_ELEM\n");
-#endif
     size_t side;
     double **matrix = get_matrix(&side);
     printf("Initial matrix:\n");
     __print_matrix(matrix, side);
     double *answers_seidel = NULL;
     if (await_response("Run Seidel method?")) {
+        printf("Running Seidel's method\n");
         if (seidel_method(matrix, side, &answers_seidel) == -1) {
             printf("Seidel method failed: Zero element on diagonal!\n");
         } else {
@@ -480,6 +470,14 @@ int main() {
     if (answers_seidel) {
         free(answers_seidel);
     }
+    if (!await_response("Run Gauss method?")) {
+        free(matrix[0]);
+        free(matrix);
+        return 0;
+    }
+    printf("Which Gauss type? (1 - Usual, 2 - Main Elem)\n");
+    scanf("%d", &GAUSS_TYPE);
+    printf("%d type of Gauss was selected\n", GAUSS_TYPE);
     size_t op_len = side;
     Operation *ops = calloc(op_len, sizeof(Operation));
     size_t op_i = 0;
@@ -493,8 +491,6 @@ int main() {
         __print_matrix(matrix, side);
         return 1;
     }
-    printf("Result matrix:\n");
-    __print_matrix(matrix, side);
     printf("Answers:\n");
     __print_usual_m_answers(matrix, side);
     printf("Determinant: %lg\n", DETERMINANT);
