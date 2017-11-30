@@ -5,12 +5,18 @@
 #include <ctype.h>
 
 #ifndef _EPSILON
-#define _EPSILON 0.0000001
+#define _EPSILON 0.0001
 #endif
 
 int GAUSS_TYPE = 1;
 double DETERMINANT = 1;
 const double EPS = _EPSILON;
+size_t GAUSS_SUM = 0;
+size_t GAUSS_DEL = 0;
+size_t GAUSS_MUL = 0;
+size_t SEIDEL_SUM = 0;
+size_t SEIDEL_DEL = 0;
+size_t SEIDEL_MUL = 0;
 
 /* operation structure block*/
 enum OPERATIONS {
@@ -91,7 +97,7 @@ void formula_filled_matrix(double **matrix, size_t side) {
     double x;
     scanf("%lf", &x);
     printf("x is set to %lg\n", x);
-    double q = 0.997;
+    double q = 0.989;
     size_t i, j;
     for (i = 0; i < side; i++) {
         for (j = 0; j < side; j++) {
@@ -103,7 +109,26 @@ void formula_filled_matrix(double **matrix, size_t side) {
         }
     }
     for (i = 0; i < side; i++) {
-        matrix[i][side] = fabs(x - 4) * (i + 1) * sin(x); //exp(x / (i + 1)) * cos(x / (i + 1));
+        matrix[i][side] = x * exp(x / (i + 1)) * cos(x / (i + 1));
+    }
+    return;
+}
+
+void formula_filled_matrix_extra(double **matrix, size_t side) {
+    /*1-4*/
+    size_t i, j;
+    size_t m = 15;
+    for (i = 0; i < side; i++) {
+        for (j = 0; j < side; j++) {
+            if (j != i) {
+                matrix[i][j] = (double) (i + j + 2) / (side + m);
+            } else {
+                matrix[i][j] = side + m * m + (double) (j + 1) / m + (double) (i + 1) / side;
+            }
+        }
+    }
+    for (i = 0; i < side; i++) {
+        matrix[i][side] = m * side - (i + 1) * (i + 1) * (i + 1);
     }
     return;
 }
@@ -124,11 +149,14 @@ double **get_matrix(size_t *side) {
         printf("Enter n - side of matrix:\n");
         scanf("%zu", side);
     } else {
-        *side = 40;
+        *side = 100;
     }
     double **matrix = create_matrix(*side);
     if (!flag) {
         input_fill_matrix(matrix, *side);
+    } else if (await_response("Use formula suitable for Seidel?")) {
+        *side = 100;
+        formula_filled_matrix_extra(matrix, *side);
     } else {
         formula_filled_matrix(matrix, *side);
     }
@@ -171,7 +199,7 @@ void __print_usual_m_answers(double **matrix, size_t side) {
     char var_name[13] = {0};
     for (i = 0; i < side; i++) {
         snprintf(var_name, 13, "%s%zu", "x", i + 1);
-        printf("|%6s|%12lg|\n", var_name, matrix[i][side]);
+        printf("|%6s|%20.15lg|\n", var_name, matrix[i][side]);
     }
     return;
 }
@@ -181,7 +209,7 @@ void __print_seidel_answers(double *answers, size_t side) {
     char var_name[13] = {0};
     for (i = 0; i < side; i++) {
         snprintf(var_name, 13, "%s%zu", "x", i + 1);
-        printf("|%6s|%25.20lg|\n", var_name, answers[i]);
+        printf("|%6s|%20.15lg|\n", var_name, answers[i]);
     }
     return;
 }
@@ -200,6 +228,7 @@ int normalize_line(double **matrix, size_t side, size_t which, double *mod) {
     *mod = matrix[which][first_elem];
     for (j = first_elem + 1; j < side + 1; j++) {
         matrix[which][j] /= *mod;
+        GAUSS_DEL++;
     }
     DETERMINANT *= matrix[which][first_elem];
     matrix[which][first_elem] = 1;
@@ -275,8 +304,11 @@ int subtract_line_from_line(double **matrix, size_t side, size_t from, size_t wh
     }
     if (which != from) {
         *mod = matrix[from][first_elem] / matrix[which][first_elem];
+        GAUSS_DEL++;
         for (j = first_elem + 1; j < side + 1; j++) {
             matrix[from][j] -= *mod * matrix[which][j];
+            GAUSS_SUM++;
+            GAUSS_MUL++;
         }
         matrix[from][first_elem] = 0;
     }
@@ -289,6 +321,8 @@ int subtract_line_from_line_b(double **matrix, size_t side, size_t from, size_t 
     }
     *mod = matrix[from][which];
     matrix[from][side] -= matrix[which][side] * matrix[from][which];
+    GAUSS_SUM++;
+    GAUSS_MUL++;
     matrix[from][which] = 0;
     return 0;
 }
@@ -369,11 +403,14 @@ double **get_coeffs_for_seidel(double **matrix, size_t side, double w) {
         for (j = 0; j < side + 1; j++) {
             if (i != j) {
                 r_matrix[i][j] = -w * matrix[i][j] / matrix[i][i];
+                SEIDEL_MUL++;
+                SEIDEL_DEL++;
                 if (j == side) {
                     r_matrix[i][j] *= -1;
                 }
             } else {
                 r_matrix[i][j] = 1 - w;
+                SEIDEL_SUM++;
             }
         }
     }
@@ -400,8 +437,11 @@ int update_answers(double *answers, double **coeffs, size_t side) {
             }
             if (j == side) {
                 answers[i] += coeffs[i][j];
+                SEIDEL_SUM++;
             } else {
                 answers[i] += coeffs[i][j] * answers[j];
+                SEIDEL_SUM++;
+                SEIDEL_MUL++;
             }
         }
     }
@@ -409,12 +449,14 @@ int update_answers(double *answers, double **coeffs, size_t side) {
 }
 
 int is_diff_small(double *old, double *new, size_t side) {
-    double sum = 0;
+    double max = 0, temp;
     size_t i;
     for (i = 0; i < side; i++) {
-        sum += pow(new[i] - old[i], 2);
+        temp = fabs(new[i] - old[i]);
+        max = (temp > max ? temp : max);
+        SEIDEL_SUM++;
     }
-    return (sqrt(sum) < (EPS / 2));
+    return (max < (EPS / 2));
 }
 
 int seidel_method(double **matrix, size_t side, double **answers) {
@@ -437,6 +479,9 @@ int seidel_method(double **matrix, size_t side, double **answers) {
         laps++;
         memcpy(answers_copy, *answers, (int) side * sizeof(double));
         update_answers(*answers, coeffs, side);
+        if (!(laps % 500)) {
+            printf("Passed %zu laps...\n", laps);
+        }
     } while (are_good_answers(*answers, side) && !is_diff_small(*answers, answers_copy, side));
     printf("Laps: %zu\n", laps);
     free(coeffs[0]);
@@ -457,6 +502,9 @@ int main() {
             printf("Seidel method failed: Zero element on diagonal!\n");
         } else {
             if (answers_seidel) {
+                printf("Seidel Additions: %zu\n", SEIDEL_SUM);
+                printf("Seidel Multiplications: %zu\n", SEIDEL_MUL);
+                printf("Seidel Divisions: %zu\n", SEIDEL_DEL);
                 printf("Seidel answers:\n");
                 __print_seidel_answers(answers_seidel, side);
                 if (!are_good_answers(answers_seidel, side)) {
@@ -470,13 +518,11 @@ int main() {
     if (answers_seidel) {
         free(answers_seidel);
     }
-    if (!await_response("Run Gauss method?")) {
-        free(matrix[0]);
-        free(matrix);
-        return 0;
-    }
     printf("Which Gauss type? (1 - Usual, 2 - Main Elem)\n");
     scanf("%d", &GAUSS_TYPE);
+    if (GAUSS_TYPE != 1 && GAUSS_TYPE != 2) {
+        GAUSS_TYPE = 1;
+    }
     printf("%d type of Gauss was selected\n", GAUSS_TYPE);
     size_t op_len = side;
     Operation *ops = calloc(op_len, sizeof(Operation));
@@ -491,7 +537,10 @@ int main() {
         __print_matrix(matrix, side);
         return 1;
     }
-    printf("Answers:\n");
+    printf("Gauss Additions: %zu\n", GAUSS_SUM);
+    printf("Gauss Multiplications: %zu\n", GAUSS_MUL);
+    printf("Gauss Divisions: %zu\n", GAUSS_DEL);
+    printf("Gauss Answers:\n");
     __print_usual_m_answers(matrix, side);
     printf("Determinant: %lg\n", DETERMINANT);
     free(matrix[0]);
